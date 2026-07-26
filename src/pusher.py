@@ -1,4 +1,4 @@
-"""推送模块 - 支持 Server酱 和 WxPusher 两种渠道。"""
+"""推送模块 - 支持 PushPlus / Server酱 / WxPusher 三种渠道。"""
 
 import logging
 
@@ -6,6 +6,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+PUSHPLUS_URL = "https://www.pushplus.plus/send"
 SERVERCHAN_URL = "https://sct.ftqq.com/{key}.send"
 WXPUSHER_URL = "https://wxpusher.zjiecode.com/api/send/message"
 
@@ -16,8 +17,8 @@ def push(title: str, body: str, push_type: str, push_token: str) -> bool:
     Args:
         title: 消息标题。
         body: 消息正文（Markdown）。
-        push_type: "serverchan" 或 "wxpusher"。
-        push_token: Server酱 SendKey 或 WxPusher appToken。
+        push_type: "pushplus" / "serverchan" / "wxpusher"。
+        push_token: 对应服务的 token。
 
     Returns:
         推送成功返回 True，否则 False。
@@ -27,9 +28,33 @@ def push(title: str, body: str, push_type: str, push_token: str) -> bool:
         _dry_run_print(title, body)
         return False
 
+    if push_type == "serverchan":
+        return _push_serverchan(title, body, push_token)
     if push_type == "wxpusher":
         return _push_wxpusher(title, body, push_token)
-    return _push_serverchan(title, body, push_token)
+    return _push_pushplus(title, body, push_token)
+
+
+def _push_pushplus(title: str, body: str, token: str) -> bool:
+    """通过 PushPlus 推送。免费，关注公众号即可接收。"""
+    payload = {
+        "token": token,
+        "title": title,
+        "content": body,
+        "template": "markdown",
+    }
+    try:
+        resp = httpx.post(PUSHPLUS_URL, json=payload, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") == 200:
+            logger.info("PushPlus 推送成功")
+            return True
+        logger.warning("PushPlus 推送返回异常: %s", data)
+        return False
+    except Exception as exc:
+        logger.error("PushPlus 推送失败: %s", exc)
+        return False
 
 
 def _push_serverchan(title: str, body: str, key: str) -> bool:
@@ -50,10 +75,7 @@ def _push_serverchan(title: str, body: str, key: str) -> bool:
 
 
 def _push_wxpusher(title: str, body: str, app_token: str) -> bool:
-    """通过 WxPusher 推送。
-
-    注意：需要先在 WxPusher 创建应用并获取 appToken，用户需扫码关注。
-    """
+    """通过 WxPusher 推送。"""
     payload = {
         "appToken": app_token,
         "content": f"# {title}\n\n{body}",
